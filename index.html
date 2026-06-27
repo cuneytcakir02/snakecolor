@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Snake Color Cluster</title>
+<style>
+  * { box-sizing: border-box; user-select: none; -webkit-user-select: none; touch-action: none; }
+  body {
+    margin: 0;
+    background: linear-gradient(180deg,#eef7ff,#d8e8ff);
+    font-family: Arial, sans-serif;
+    overflow: hidden;
+  }
+  #game {
+    width: 100vw;
+    height: 100vh;
+    max-width: 480px;
+    margin: 0 auto;
+    position: relative;
+    background: radial-gradient(circle at 50% 20%, #ffffff 0%, #dcecff 65%, #c6dcff 100%);
+    overflow: hidden;
+  }
+  .topbar {
+    position: absolute;
+    top: 18px;
+    left: 18px;
+    right: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    z-index: 5;
+    font-weight: 900;
+    color: #27364a;
+  }
+  .pill {
+    background: rgba(255,255,255,.8);
+    padding: 10px 14px;
+    border-radius: 18px;
+    box-shadow: 0 8px 20px rgba(60,90,130,.14);
+  }
+  #replay {
+    border: 0;
+    font-size: 22px;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 8px 20px rgba(60,90,130,.18);
+  }
+  #hint {
+    position: absolute;
+    top: 78px;
+    left: 18px;
+    right: 18px;
+    text-align: center;
+    color: #52647d;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  #board {
+    position: absolute;
+    left: 50%;
+    top: 55%;
+    transform: translate(-50%, -50%);
+    width: min(92vw, 430px);
+    aspect-ratio: 1 / 1;
+    border-radius: 26px;
+    background: rgba(255,255,255,.55);
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.65), 0 20px 40px rgba(70,100,150,.18);
+  }
+  .cell {
+    position: absolute;
+    border-radius: 14px;
+    background: rgba(255,255,255,.72);
+    box-shadow: inset 0 0 0 2px rgba(160,185,215,.35);
+  }
+  .seg {
+    position: absolute;
+    border-radius: 16px;
+    box-shadow: inset 0 -6px 0 rgba(0,0,0,.1), 0 7px 14px rgba(30,50,80,.18);
+    transition: left .13s linear, top .13s linear, transform .13s linear;
+    z-index: 3;
+  }
+  .seg.dragging { z-index: 10; transform: scale(1.04); }
+  .face {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    pointer-events: none;
+  }
+  .face:before {
+    content: "••";
+    letter-spacing: 5px;
+    font-size: 14px;
+    color: rgba(255,255,255,.9);
+    transform: translateY(-2px);
+  }
+  .face:after {
+    content: "";
+    position: absolute;
+    width: 18px;
+    height: 8px;
+    border-bottom: 3px solid rgba(255,255,255,.85);
+    border-radius: 0 0 12px 12px;
+    bottom: 13px;
+  }
+  .glow {
+    animation: glow .55s ease-in-out infinite alternate;
+  }
+  @keyframes glow {
+    from { filter: brightness(1); }
+    to { filter: brightness(1.28); }
+  }
+  #win {
+    position: absolute;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    background: rgba(30,50,80,.25);
+    backdrop-filter: blur(4px);
+  }
+  #winCard {
+    background: white;
+    border-radius: 28px;
+    padding: 28px 32px;
+    text-align: center;
+    color: #27364a;
+    box-shadow: 0 20px 60px rgba(30,50,80,.28);
+    font-weight: 900;
+  }
+  #winCard .big { font-size: 42px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div id="game">
+  <div class="topbar">
+    <div class="pill">LEVEL 1</div>
+    <button id="replay">↻</button>
+  </div>
+  <div id="hint">Yılanın ucunu sürükle. Renkler sabit kalır. Amaç: aynı renkteki tüm parçaları birbirine temas ettirmek.</div>
+  <div id="board"></div>
+  <div id="win"><div id="winCard"><div class="big">WIN!</div><div>Tüm renk kümeleri birleşti.</div></div></div>
+</div>
+
+<script>
+const board = document.getElementById("board");
+const win = document.getElementById("win");
+const replay = document.getElementById("replay");
+
+const N = 7;
+let cell, gap = 6;
+let snakes, occ, active = null;
+
+const colors = {
+  red: "#f05a5a",
+  yellow: "#f5c84b",
+  blue: "#4d8cff",
+  green: "#43c878",
+  purple: "#a36bff"
+};
+
+const initialSnakes = [
+  // her snake 3 grid; colors array segment renkleri
+  { id:"s1", cells:[[0,1],[1,1],[2,1]], colors:["red","red","yellow"] },
+  { id:"s2", cells:[[5,0],[5,1],[5,2]], colors:["yellow","blue","blue"] },
+  { id:"s3", cells:[[1,4],[2,4],[3,4]], colors:["red","green","green"] },
+  { id:"s4", cells:[[6,4],[6,5],[5,5]], colors:["yellow","purple","purple"] },
+  { id:"s5", cells:[[0,6],[1,6],[2,6]], colors:["blue","green","purple"] }
+];
+
+function reset() {
+  board.innerHTML = "";
+  win.style.display = "none";
+  snakes = JSON.parse(JSON.stringify(initialSnakes));
+  drawGrid();
+  rebuildOcc();
+  drawSnakes();
+  checkWin();
+}
+
+function drawGrid() {
+  const rect = board.getBoundingClientRect();
+  cell = (rect.width - gap * (N + 1)) / N;
+  for (let y=0;y<N;y++) for (let x=0;x<N;x++) {
+    const c = document.createElement("div");
+    c.className = "cell";
+    c.style.left = px(gap + x*(cell+gap));
+    c.style.top = px(gap + y*(cell+gap));
+    c.style.width = px(cell);
+    c.style.height = px(cell);
+    board.appendChild(c);
+  }
+}
+
+function rebuildOcc() {
+  occ = Array.from({length:N},()=>Array(N).fill(null));
+  for (const s of snakes) {
+    s.cells.forEach((p,i)=> occ[p[1]][p[0]] = {sid:s.id, idx:i});
+  }
+}
+
+function drawSnakes() {
+  document.querySelectorAll(".seg").forEach(e=>e.remove());
+  for (const s of snakes) {
+    s.cells.forEach((p,i)=>{
+      const e = document.createElement("div");
+      e.className = "seg";
+      e.dataset.sid = s.id;
+      e.dataset.idx = i;
+      e.style.background = colors[s.colors[i]];
+      e.style.left = px(gap + p[0]*(cell+gap));
+      e.style.top = px(gap + p[1]*(cell+gap));
+      e.style.width = px(cell);
+      e.style.height = px(cell);
+      e.innerHTML = `<div class="face"></div>`;
+      board.appendChild(e);
+      if (i===0 || i===s.cells.length-1) {
+        e.addEventListener("pointerdown", pointerDown);
+      }
+    });
+  }
+}
+
+function pointerDown(ev) {
+  const el = ev.currentTarget;
+  const sid = el.dataset.sid;
+  const idx = +el.dataset.idx;
+  const s = snakes.find(a=>a.id===sid);
+  const isHead = idx === 0;
+  active = {
+    sid,
+    grabbedHead: isHead,
+    lastX: ev.clientX,
+    lastY: ev.clientY,
+    accX: 0,
+    accY: 0
+  };
+  el.setPointerCapture(ev.pointerId);
+  document.querySelectorAll(`[data-sid="${sid}"]`).forEach(n=>n.classList.add("dragging"));
+  window.addEventListener("pointermove", pointerMove);
+  window.addEventListener("pointerup", pointerUp, {once:true});
+}
+
+function pointerMove(ev) {
+  if (!active) return;
+  active.accX += ev.clientX - active.lastX;
+  active.accY += ev.clientY - active.lastY;
+  active.lastX = ev.clientX;
+  active.lastY = ev.clientY;
+
+  const threshold = cell * .55;
+  while (Math.abs(active.accX) > threshold || Math.abs(active.accY) > threshold) {
+    let dx = 0, dy = 0;
+    if (Math.abs(active.accX) > Math.abs(active.accY)) {
+      dx = active.accX > 0 ? 1 : -1;
+      active.accX -= dx * threshold;
+      active.accY = 0;
+    } else {
+      dy = active.accY > 0 ? 1 : -1;
+      active.accY -= dy * threshold;
+      active.accX = 0;
+    }
+    tryMove(active.sid, active.grabbedHead, dx, dy);
+  }
+}
+
+function pointerUp() {
+  if (!active) return;
+  document.querySelectorAll(".seg").forEach(n=>n.classList.remove("dragging"));
+  active = null;
+  checkWin();
+}
+
+function tryMove(sid, grabbedHead, dx, dy) {
+  const s = snakes.find(a=>a.id===sid);
+  const endIndex = grabbedHead ? 0 : s.cells.length-1;
+  const tailIndex = grabbedHead ? s.cells.length-1 : 0;
+  const end = s.cells[endIndex];
+  const np = [end[0]+dx, end[1]+dy];
+
+  if (np[0]<0 || np[0]>=N || np[1]<0 || np[1]>=N) return;
+
+  const occupied = occ[np[1]][np[0]];
+  const tail = s.cells[tailIndex];
+  const movingIntoOwnTail = occupied && occupied.sid===sid && np[0]===tail[0] && np[1]===tail[1];
+  if (occupied && !movingIntoOwnTail) return;
+
+  // Renkler yılanın segmentlerine sabit kalır.
+  // Hareket sadece segmentlerin pozisyonlarını snake mantığında kaydırır.
+  // colors array'i hiçbir zaman değişmez.
+  if (grabbedHead) {
+    s.cells.unshift(np);
+    s.cells.pop();
+  } else {
+    s.cells.push(np);
+    s.cells.shift();
+  }
+
+  rebuildOcc();
+  drawSnakes();
+}
+
+function checkWin() {
+  const all = {};
+  for (const s of snakes) {
+    s.cells.forEach((p,i)=>{
+      const col = s.colors[i];
+      if (!all[col]) all[col] = [];
+      all[col].push(p);
+    });
+  }
+
+  let ok = true;
+  for (const col in all) {
+    const pts = all[col];
+    const seen = new Set();
+    const key = p => p[0]+","+p[1];
+    const q = [pts[0]];
+    seen.add(key(pts[0]));
+    while(q.length) {
+      const p = q.shift();
+      for (const d of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const n = [p[0]+d[0], p[1]+d[1]];
+        if (pts.some(a=>a[0]===n[0] && a[1]===n[1]) && !seen.has(key(n))) {
+          seen.add(key(n));
+          q.push(n);
+        }
+      }
+    }
+    const complete = seen.size === pts.length;
+    if (!complete) ok = false;
+    for (const p of pts) {
+      const o = occ[p[1]][p[0]];
+      if (o) {
+        const el = document.querySelector(`[data-sid="${o.sid}"][data-idx="${o.idx}"]`);
+        if (el) el.classList.toggle("glow", complete);
+      }
+    }
+  }
+
+  if (ok) setTimeout(()=> win.style.display = "flex", 350);
+}
+
+function px(v){ return v + "px"; }
+
+replay.onclick = reset;
+window.addEventListener("resize", reset);
+reset();
+</script>
+</body>
+</html>
